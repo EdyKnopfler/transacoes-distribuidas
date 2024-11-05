@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Main File In Directory",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${fileDirname}/main.go"
+        },
+        {
+            "name": "Launch Package",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "env": {
+                "REDIS_HOST":"127.0.0.1",
+                "REDIS_PORT":"6379",
+                "REDIS_PASSWORD":"$3nh4!"
+              },
+            //"showLog": true,
+            //"logOutput": "dap",
+            //"stopOnEntry": true,
+            "program": "${workspaceRoot}/main.go"
+        }
+    ]
+}

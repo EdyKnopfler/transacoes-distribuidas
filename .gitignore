@@ -1,0 +1,5 @@
+redis-data/
+rabbitmq-data/
+postgres-data/
+gopkg/
+**/__debug*

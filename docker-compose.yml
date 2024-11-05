@@ -1,0 +1,45 @@
+services:
+
+  redis:
+    image: redis:7.2.1-alpine
+    command: redis-server --requirepass $3nh4! --maxmemory 1gb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
+  
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    volumes:
+      - ./rabbitmq-data:/var/lib/rabbitmq/mnesia/
+    environment:
+      RABBITMQ_DEFAULT_USER: usuario
+      RABBITMQ_DEFAULT_PASS: senha
+  
+  postgres:
+    image: postgres:17.0-alpine3.20
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: senhasenha
+    ports:
+      - "5432:5432"
+  
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/go/src
+      - ./gopkg:/go/pkg/mod
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: $3nh4!
+      RABBITMQ_USER: usuario
+      RABBITMQ_PASSWORD: senha
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: senhasenha
