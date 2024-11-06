@@ -16,10 +16,14 @@ type RedisConnection struct {
 	sync   *redsync.Redsync
 }
 
-func ConectarRedis() *RedisConnection {
+const LOCK_DATABASE = 1
+const SESSION_DATABASE = 2
+
+func ConectarRedis(database int) *RedisConnection {
 	client := goredislib.NewClient(&goredislib.Options{
 		Addr:     fmt.Sprintf("%s:%s", os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PORT")),
 		Password: os.Getenv("REDIS_PASSWORD"),
+		DB:       database,
 	})
 
 	pool := goredis.NewPool(client)
@@ -36,14 +40,14 @@ func (conn *RedisConnection) Fechar() {
 	conn.client.Close()
 }
 
-func (conn *RedisConnection) Bloquear(chave string) (error, *redsync.Mutex) {
+func (conn *RedisConnection) Bloquear(chave string) (*redsync.Mutex, error) {
 	mutex := conn.sync.NewMutex(chave)
 
 	if err := mutex.Lock(); err != nil {
-		return err, nil
+		return nil, err
 	}
 
-	return nil, mutex
+	return mutex, nil
 }
 
 func (conn *RedisConnection) Desbloquear(mutex *redsync.Mutex) (bool, error) {

@@ -19,10 +19,6 @@ type Mensagem struct {
 	Dados []byte
 }
 
-func ConectarRabbitMQ() (*amqp.Connection, error) {
-	return amqp.Dial("amqp://guest:guest@localhost:5672/")
-}
-
 func Inicializar(ch *amqp.Channel) error {
 	if err := declararExchange(ch, errorsExchange); err != nil {
 		return err
