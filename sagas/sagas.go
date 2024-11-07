@@ -15,16 +15,12 @@ const EXECUTE byte = 1
 const DESFAÇA byte = 2
 
 type Mensagem struct {
-	Tipo  byte
-	Dados []byte
+	Tipo  byte   `json:"tipo"`
+	Dados string `json:"dados"`
 }
 
 func Inicializar(ch *amqp.Channel) error {
 	if err := declararExchange(ch, errorsExchange); err != nil {
-		return err
-	}
-
-	if err := declararFila(ch, "errors", errorsExchange); err != nil {
 		return err
 	}
 
@@ -93,47 +89,45 @@ func IniciarConsumo(
 
 	var mensagem Mensagem
 
-	for entrega := range entregas {
-		buffer := bytes.NewBuffer(entrega.Body)
-		decoder := json.NewDecoder(buffer)
-		err := decoder.Decode(&mensagem)
+	for {
+		for entrega := range entregas {
+			err := json.Unmarshal(entrega.Body, &mensagem)
 
-		if err != nil {
-			fmt.Printf("Falha ao ler mensagem '%s' em JSON: %s\n", buffer.String(), err)
-		} else {
-			err = funcaoTratamento(mensagem)
-		}
-
-		if err != nil {
-			// multiple, requeue
-			if err = entrega.Nack(false, false); err != nil {
-				fmt.Printf("Falha ao realizar Not Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
-			}
-
-			if filaServicoAnterior != nil {
-				mensagem.Tipo = DESFAÇA
-				Publicar(ch, *filaServicoAnterior, mensagem)
-			}
-		} else {
-			// multiple
-			if err = entrega.Ack(false); err != nil {
-				fmt.Printf("Falha ao realizar Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
-			}
-
-			var fila *string
-			if mensagem.Tipo == EXECUTE {
-				fila = filaProximoServico
+			if err != nil {
+				fmt.Printf("Falha ao ler mensagem '%s' em JSON: %s\n", string(entrega.Body), err)
 			} else {
-				fila = filaServicoAnterior
+				err = funcaoTratamento(mensagem)
 			}
 
-			if fila != nil {
-				Publicar(ch, *fila, mensagem)
+			if err != nil {
+				// multiple, requeue
+				if err = entrega.Nack(false, false); err != nil {
+					fmt.Printf("Falha ao realizar Not Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
+				}
+
+				if filaServicoAnterior != nil {
+					mensagem.Tipo = DESFAÇA
+					Publicar(ch, *filaServicoAnterior, mensagem)
+				}
+			} else {
+				// multiple
+				if err = entrega.Ack(false); err != nil {
+					fmt.Printf("Falha ao realizar Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
+				}
+
+				var fila *string
+				if mensagem.Tipo == EXECUTE {
+					fila = filaProximoServico
+				} else {
+					fila = filaServicoAnterior
+				}
+
+				if fila != nil {
+					Publicar(ch, *fila, mensagem)
+				}
 			}
 		}
 	}
-
-	return nil // Só por burocracia
 }
 
 func Publicar(ch *amqp.Channel, fila string, mensagem Mensagem) error {
@@ -232,8 +226,8 @@ func declararFila(ch *amqp.Channel, nomeFila, exchange string) error {
 
 func configurarQos(ch *amqp.Channel) error {
 	err := ch.Qos(
-		0,     // prefetch count
-		1,     // prefetch size
+		1,     // prefetch count
+		0,     // prefetch size
 		false, // global
 	)
 
