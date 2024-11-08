@@ -1,29 +1,21 @@
 package main
 
 import (
-	"com.derso.aprendendo/conexoes"
+	"encoding/json"
+	"fmt"
 )
 
+type Objeto struct {
+	Valor     int     `json:"valor"`
+	Descricao *string `json:"descricao"`
+}
+
 func main() {
-	gormPostgres, err := conexoes.ConectarPostgreSQL("hotel")
+	obj := Objeto{}
 
-	if err != nil {
-		panic("Não foi possível conectar-se ao PostgreSQL.")
-	}
+	err := json.Unmarshal([]byte("{ \"valor\": 1 }"), &obj)
+	fmt.Println(err, obj)
 
-	defer func() {
-		sqlDB, _ := gormPostgres.DB()
-		sqlDB.Close()
-	}()
-
-	redis := conexoes.ConectarRedis(conexoes.SESSION_DATABASE)
-	defer redis.Fechar()
-
-	rabbitMQ, err := conexoes.ConectarRabbitMQ()
-
-	if err != nil {
-		panic("Não foi possível conectar-se ao RabbitMq.")
-	}
-
-	defer rabbitMQ.Fechar()
+	err = json.Unmarshal([]byte("{ \"valor\": 1, \"descricao\": \"Gatim Fofim\" }"), &obj)
+	fmt.Println(err, obj, *obj.Descricao)
 }

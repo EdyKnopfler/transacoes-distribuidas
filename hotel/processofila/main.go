@@ -1,14 +1,10 @@
 package main
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
-
 	"com.derso.aprendendo/conexoes"
+	hotel "com.derso.aprendendo/hotel/negocio"
 	"com.derso.aprendendo/sagas"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -23,11 +19,7 @@ func main() {
 		sqlDB.Close()
 	}()
 
-	redisSessoes := conexoes.ConectarRedis(conexoes.SESSION_DATABASE)
-	defer redisSessoes.Fechar()
-
-	redisLock := conexoes.ConectarRedis(conexoes.LOCK_DATABASE)
-	defer redisLock.Fechar()
+	gormPostgres.AutoMigrate(&hotel.Vaga{})
 
 	rabbitMQ, err := conexoes.ConectarRabbitMQ()
 
@@ -46,21 +38,37 @@ func main() {
 		rabbitMQ.Channel,
 		estaFila,
 		func(mensagem sagas.Mensagem) error {
-			if mensagem.Tipo == sagas.EXECUTE {
-				fmt.Println("Executando " + string(mensagem.Dados))
-				return nil
-			} else {
-				msg := "Erro ao reverter " + string(mensagem.Dados)
-				fmt.Println(msg)
-				return errors.New(msg)
-			}
+			return executar(gormPostgres, mensagem)
 		},
 		estaFila,
 		nil,
 		&proximaFila,
 	)
+}
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, os.Interrupt) // os.Interrupt: Ctrl+C
-	<-stop
+func executar(gormPostgres *gorm.DB, mensagem sagas.Mensagem) error {
+	// TODO a obtenção do lock da sessão e a mudança do estado devem ser feitas
+	// antes de enviar a mensagem para a fila
+
+	/*
+		bloqueio, err := redisLock.Bloquear(mensagemHotel.IdSessao)
+
+		if err != nil {
+			return err
+		}
+
+		defer redisLock.Desbloquear(bloqueio)
+	*/
+
+	// TODO É preciso diferenciar o processo sendo iniciado: confirmação ou timeout
+	// Usar json.Unmarshal
+	idVaga := mensagem.Dados
+
+	return gormPostgres.Transaction(func(tx *gorm.DB) error {
+		if mensagem.Tipo == sagas.EXECUTE {
+			return hotel.Confirmar(tx, idVaga)
+		} else {
+			return hotel.Cancelar(tx, idVaga)
+		}
+	})
 }

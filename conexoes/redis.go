@@ -1,6 +1,7 @@
 package conexoes
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -53,4 +54,13 @@ func (conn *RedisConnection) Bloquear(chave string) (*redsync.Mutex, error) {
 func (conn *RedisConnection) Desbloquear(mutex *redsync.Mutex) (bool, error) {
 	status, err := mutex.Unlock()
 	return status, err
+}
+
+func (conn *RedisConnection) Setar(ctx context.Context, key string, value string) error {
+	return conn.client.Set(ctx, key, value, 0).Err()
+}
+
+func (conn *RedisConnection) Obter(ctx context.Context, key string) (string, error) {
+	val, err := conn.client.Get(ctx, key).Result()
+	return val, err
 }
