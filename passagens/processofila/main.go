@@ -1,14 +1,27 @@
 package main
 
 import (
-	"fmt"
+	"encoding/json"
+	"errors"
 
 	"com.derso.aprendendo/conexoes"
+	passagens "com.derso.aprendendo/passagens/negocio"
 	"com.derso.aprendendo/sagas"
+	"gorm.io/gorm"
 )
 
+const (
+	CONFIRMACAO = 1
+	TIMEOUT     = 2
+)
+
+type Mensagem struct {
+	IdAssento string `json:"idAssento"`
+	Acao      byte   `json:"acao"`
+}
+
 func main() {
-	gormPostgres, err := conexoes.ConectarPostgreSQL("hotel")
+	gormPostgres, err := conexoes.ConectarPostgreSQL("passagens")
 
 	if err != nil {
 		panic("Não foi possível conectar-se ao PostgreSQL.")
@@ -19,11 +32,7 @@ func main() {
 		sqlDB.Close()
 	}()
 
-	redisSessoes := conexoes.ConectarRedis(conexoes.SESSION_DATABASE)
-	defer redisSessoes.Fechar()
-
-	redisLock := conexoes.ConectarRedis(conexoes.LOCK_DATABASE)
-	defer redisLock.Fechar()
+	gormPostgres.AutoMigrate(&passagens.Assento{})
 
 	rabbitMQ, err := conexoes.ConectarRabbitMQ()
 
@@ -43,16 +52,35 @@ func main() {
 		rabbitMQ.Channel,
 		estaFila,
 		func(mensagem sagas.Mensagem) error {
-			if mensagem.Tipo == sagas.EXECUTE {
-				fmt.Println("Executando " + string(mensagem.Dados))
-			} else {
-				fmt.Println("Revertendo " + string(mensagem.Dados))
-			}
-
-			return nil
+			return executar(gormPostgres, mensagem)
 		},
 		estaFila,
 		&filaAnterior,
 		&proximaFila,
 	)
+}
+
+func executar(gormPostgres *gorm.DB, mensagem sagas.Mensagem) error {
+	msgPassagens := Mensagem{}
+	err := json.Unmarshal([]byte(mensagem.Dados), &msgPassagens)
+
+	if err != nil {
+		return err
+	}
+
+	return gormPostgres.Transaction(func(tx *gorm.DB) error {
+		if mensagem.Tipo == sagas.EXECUTE {
+			switch msgPassagens.Acao {
+			case CONFIRMACAO:
+				return passagens.Reservar(tx, msgPassagens.IdAssento)
+			case TIMEOUT:
+				return passagens.Liberar(tx, msgPassagens.IdAssento)
+			default:
+				return errors.New("ação não definida")
+			}
+		} else {
+			// Não está previsto reverter timeout
+			return passagens.ReverterReserva(tx, msgPassagens.IdAssento)
+		}
+	})
 }

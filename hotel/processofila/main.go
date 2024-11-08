@@ -1,11 +1,24 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
+
 	"com.derso.aprendendo/conexoes"
 	hotel "com.derso.aprendendo/hotel/negocio"
 	"com.derso.aprendendo/sagas"
 	"gorm.io/gorm"
 )
+
+const (
+	CONFIRMACAO = 1
+	TIMEOUT     = 2
+)
+
+type Mensagem struct {
+	IdVaga string `json:"idVaga"`
+	Acao   byte   `json:"acao"`
+}
 
 func main() {
 	gormPostgres, err := conexoes.ConectarPostgreSQL("hotel")
@@ -60,15 +73,28 @@ func executar(gormPostgres *gorm.DB, mensagem sagas.Mensagem) error {
 		defer redisLock.Desbloquear(bloqueio)
 	*/
 
-	// TODO É preciso diferenciar o processo sendo iniciado: confirmação ou timeout
-	// Usar json.Unmarshal
-	idVaga := mensagem.Dados
+	msgHotel := Mensagem{}
+	err := json.Unmarshal([]byte(mensagem.Dados), &msgHotel)
 
+	if err != nil {
+		return err
+	}
+
+	// TODO Tratamento do erro na sessão
+	// Ao final do processo de reversão, é preciso reverter o estado para PRE_RESERVA
 	return gormPostgres.Transaction(func(tx *gorm.DB) error {
 		if mensagem.Tipo == sagas.EXECUTE {
-			return hotel.Confirmar(tx, idVaga)
+			switch msgHotel.Acao {
+			case CONFIRMACAO:
+				return hotel.Reservar(tx, msgHotel.IdVaga)
+			case TIMEOUT:
+				return hotel.Liberar(tx, msgHotel.IdVaga)
+			default:
+				return errors.New("ação não definida")
+			}
 		} else {
-			return hotel.Cancelar(tx, idVaga)
+			// Não está previsto reverter timeout
+			return hotel.ReverterReserva(tx, msgHotel.IdVaga)
 		}
 	})
 }

@@ -1,6 +1,10 @@
 package hotel
 
-import "gorm.io/gorm"
+import (
+	"fmt"
+
+	"gorm.io/gorm"
+)
 
 const (
 	LIVRE       = 1
@@ -10,14 +14,48 @@ const (
 
 type Vaga struct {
 	ID     string `gorm:"primaryKey;size:36"`
-	Estado int
+	Estado byte   `gorm:"default:1"`
 }
 
-func Confirmar(db *gorm.DB, idVaga string) error {
-	// TODO Lógica com o gORM: verificar o estado atual da vaga
-	return nil
+var transicoesValidas = map[byte]map[byte]bool{
+	LIVRE: {
+		PRE_RESERVA: true,
+	},
+	PRE_RESERVA: {
+		LIVRE:     true,
+		RESERVADA: true,
+	},
+	RESERVADA: {
+		PRE_RESERVA: true,
+	},
 }
 
-func Cancelar(db *gorm.DB, idVaga string) error {
-	return nil
+func Reservar(db *gorm.DB, idVaga string) error {
+	return transicionarEstado(db, idVaga, RESERVADA)
+}
+
+func Liberar(db *gorm.DB, idVaga string) error {
+	return transicionarEstado(db, idVaga, LIVRE)
+}
+
+func ReverterReserva(db *gorm.DB, idVaga string) error {
+	return transicionarEstado(db, idVaga, PRE_RESERVA)
+}
+
+func transicionarEstado(db *gorm.DB, idVaga string, novoEstado byte) error {
+	var vaga Vaga
+
+	if err := db.First(&vaga, idVaga).Error; err != nil {
+		return err
+	}
+
+	if transicoesValidas[vaga.Estado][novoEstado] {
+		if err := db.Save(&vaga).Error; err != nil {
+			return err
+		}
+
+		return nil
+	} else {
+		return fmt.Errorf("transição de vaga de hotel inválida: %d => %d", vaga.Estado, novoEstado)
+	}
 }
