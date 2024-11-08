@@ -7,6 +7,7 @@ import (
 	"com.derso.aprendendo/conexoes"
 	hotel "com.derso.aprendendo/hotel/negocio"
 	"com.derso.aprendendo/sagas"
+	"com.derso.aprendendo/sessoes"
 	"gorm.io/gorm"
 )
 
@@ -16,16 +17,25 @@ const (
 )
 
 type Mensagem struct {
-	IdVaga string `json:"idVaga"`
-	Acao   byte   `json:"acao"`
+	IdVaga   string `json:"idVaga"`
+	IdSessao string `json:"idSessao"`
+	Acao     byte   `json:"acao"`
 }
 
+var (
+	gormPostgres *gorm.DB
+	redisSessoes *conexoes.RedisConnection
+	redisLock    *conexoes.RedisConnection
+)
+
 func main() {
-	gormPostgres, err := conexoes.ConectarPostgreSQL("hotel")
+	db, err := conexoes.ConectarPostgreSQL("hotel")
 
 	if err != nil {
 		panic("Não foi possível conectar-se ao PostgreSQL.")
 	}
+
+	gormPostgres = db
 
 	defer func() {
 		sqlDB, _ := gormPostgres.DB()
@@ -33,6 +43,12 @@ func main() {
 	}()
 
 	gormPostgres.AutoMigrate(&hotel.Vaga{})
+
+	redisSessoes = conexoes.ConectarRedis(conexoes.SESSION_DATABASE)
+	defer redisSessoes.Fechar()
+
+	redisLock = conexoes.ConectarRedis(conexoes.LOCK_DATABASE)
+	defer redisLock.Fechar()
 
 	rabbitMQ, err := conexoes.ConectarRabbitMQ()
 
@@ -51,7 +67,7 @@ func main() {
 		rabbitMQ.Channel,
 		estaFila,
 		func(mensagem sagas.Mensagem) error {
-			return executar(gormPostgres, mensagem)
+			return executar(mensagem)
 		},
 		estaFila,
 		nil,
@@ -59,7 +75,7 @@ func main() {
 	)
 }
 
-func executar(gormPostgres *gorm.DB, mensagem sagas.Mensagem) error {
+func executar(mensagem sagas.Mensagem) error {
 	// TODO a obtenção do lock da sessão e a mudança do estado devem ser feitas
 	// antes de enviar a mensagem para a fila
 
@@ -80,8 +96,6 @@ func executar(gormPostgres *gorm.DB, mensagem sagas.Mensagem) error {
 		return err
 	}
 
-	// TODO Tratamento do erro na sessão
-	// Ao final do processo de reversão, é preciso reverter o estado para PRE_RESERVA
 	return gormPostgres.Transaction(func(tx *gorm.DB) error {
 		if mensagem.Tipo == sagas.EXECUTE {
 			switch msgHotel.Acao {
@@ -94,7 +108,15 @@ func executar(gormPostgres *gorm.DB, mensagem sagas.Mensagem) error {
 			}
 		} else {
 			// Não está previsto reverter timeout
-			return hotel.ReverterReserva(tx, msgHotel.IdVaga)
+			return sessoes.ExecutarSobBloqueio(msgHotel.IdSessao, redisLock, func() error {
+				err := hotel.ReverterReserva(tx, msgHotel.IdVaga)
+
+				if err != nil {
+					return err
+				}
+
+				return sessoes.MudarEstado(msgHotel.IdSessao, redisSessoes, sessoes.ATIVA)
+			})
 		}
 	})
 }

@@ -17,6 +17,7 @@ const (
 
 type Mensagem struct {
 	IdAssento string `json:"idAssento"`
+	IdSessao  string `json:"idSessao"`
 	Acao      byte   `json:"acao"`
 }
 

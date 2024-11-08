@@ -1,8 +1,8 @@
 package sessoes
 
 import (
-	"context"
 	"encoding/json"
+	"fmt"
 
 	"com.derso.aprendendo/conexoes"
 	"github.com/google/uuid"
@@ -16,10 +16,21 @@ const (
 
 type Sessao struct {
 	IdUsuario string
-	Estado    int
+	Estado    byte
 }
 
-func CriarSessao(ctx context.Context, redis conexoes.RedisConnection, IdUsuario string) (string, error) {
+var transicoesValidas = map[byte]map[byte]bool{
+	ATIVA: {
+		FINALIZADA: true,
+		CANCELADA:  true,
+	},
+	FINALIZADA: {
+		ATIVA: true, // Em caso de reversão do processo de finalização
+	},
+	CANCELADA: {},
+}
+
+func CriarSessao(redis conexoes.RedisConnection, IdUsuario string) (string, error) {
 	id := uuid.New().String()
 
 	sessao := Sessao{
@@ -27,13 +38,60 @@ func CriarSessao(ctx context.Context, redis conexoes.RedisConnection, IdUsuario 
 		Estado:    ATIVA,
 	}
 
-	sessaoJson, _ := json.Marshal(sessao)
+	sessaoJson, err := json.Marshal(sessao)
 
-	err := redis.Setar(ctx, id, string(sessaoJson))
+	if err != nil {
+		return id, err
+	}
+
+	err = redis.Setar(id, string(sessaoJson))
 
 	if err != nil {
 		return id, err
 	}
 
 	return id, nil
+}
+
+func MudarEstado(idSessao string, redis *conexoes.RedisConnection, novoEstado byte) error {
+	raw, err := redis.Obter(idSessao)
+
+	if err != nil {
+		return err
+	}
+
+	var sessao Sessao
+	err = json.Unmarshal([]byte(raw), &sessao)
+
+	if err != nil {
+		return err
+	}
+
+	estadoAnterior := sessao.Estado
+
+	if transicoesValidas[estadoAnterior][novoEstado] {
+		sessao.Estado = novoEstado
+		sessaoJson, err := json.Marshal(sessao)
+
+		if err != nil {
+			return err
+		}
+
+		err = redis.Setar(idSessao, string(sessaoJson))
+		return err
+	} else {
+		return fmt.Errorf("transição de sessão inválida: %d => %d", estadoAnterior, novoEstado)
+	}
+}
+
+func ExecutarSobBloqueio(idSessao string, redis *conexoes.RedisConnection, fn func() error) error {
+	mutex, err := redis.Bloquear(idSessao)
+
+	if err != nil {
+		return err
+	}
+
+	defer redis.Desbloquear(mutex)
+
+	return fn()
 }
