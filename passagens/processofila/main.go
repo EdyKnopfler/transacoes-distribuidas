@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 
 	"com.derso.aprendendo/conexoes"
@@ -20,6 +19,8 @@ type Mensagem struct {
 	IdSessao  string `json:"idSessao"`
 	Acao      byte   `json:"acao"`
 }
+
+var gormPostgres *gorm.DB
 
 func main() {
 	gormPostgres, err := conexoes.ConectarPostgreSQL("passagens")
@@ -53,7 +54,7 @@ func main() {
 		rabbitMQ.Channel,
 		estaFila,
 		func(mensagem sagas.Mensagem) error {
-			return executar(gormPostgres, mensagem)
+			return executar(mensagem)
 		},
 		estaFila,
 		&filaAnterior,
@@ -61,27 +62,20 @@ func main() {
 	)
 }
 
-func executar(gormPostgres *gorm.DB, mensagem sagas.Mensagem) error {
-	msgPassagens := Mensagem{}
-	err := json.Unmarshal([]byte(mensagem.Dados), &msgPassagens)
-
-	if err != nil {
-		return err
-	}
-
+func executar(mensagem sagas.Mensagem) error {
 	return gormPostgres.Transaction(func(tx *gorm.DB) error {
-		if mensagem.Tipo == sagas.EXECUTE {
-			switch msgPassagens.Acao {
+		if mensagem["tipo"] == sagas.EXECUTE {
+			switch mensagem["acao"] {
 			case CONFIRMACAO:
-				return passagens.Reservar(tx, msgPassagens.IdAssento)
+				return passagens.Reservar(tx, mensagem["idAssento"].(string))
 			case TIMEOUT:
-				return passagens.Liberar(tx, msgPassagens.IdAssento)
+				return passagens.Liberar(tx, mensagem["idAssento"].(string))
 			default:
 				return errors.New("ação não definida")
 			}
 		} else {
 			// Não está previsto reverter timeout
-			return passagens.ReverterReserva(tx, msgPassagens.IdAssento)
+			return passagens.ReverterReserva(tx, mensagem["idAssento"].(string))
 		}
 	})
 }

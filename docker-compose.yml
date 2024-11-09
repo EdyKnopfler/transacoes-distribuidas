@@ -9,6 +9,7 @@ services:
       - ./_redis-data:/data
   
   rabbitmq:
+    hostname: myrabbit
     image: rabbitmq:3-management
     ports:
       - "15672:15672"

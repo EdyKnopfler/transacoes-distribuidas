@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 
 	"com.derso.aprendendo/conexoes"
@@ -66,8 +65,9 @@ func main() {
 	sagas.IniciarConsumo(
 		rabbitMQ.Channel,
 		estaFila,
-		func(mensagem sagas.Mensagem) error {
-			return executar(mensagem)
+		func(mensagem sagas.Mensagem) (err error) {
+			err = executar(mensagem)
+			return
 		},
 		estaFila,
 		nil,
@@ -89,33 +89,27 @@ func executar(mensagem sagas.Mensagem) error {
 		defer redisLock.Desbloquear(bloqueio)
 	*/
 
-	msgHotel := Mensagem{}
-	err := json.Unmarshal([]byte(mensagem.Dados), &msgHotel)
-
-	if err != nil {
-		return err
-	}
-
 	return gormPostgres.Transaction(func(tx *gorm.DB) error {
-		if mensagem.Tipo == sagas.EXECUTE {
-			switch msgHotel.Acao {
+		if mensagem["tipo"] == sagas.EXECUTE {
+			switch mensagem["acao"] {
 			case CONFIRMACAO:
-				return hotel.Reservar(tx, msgHotel.IdVaga)
+				// Tratamento de erro feito no módulo sagas; aqui vamos mais despreocupados :)
+				return hotel.Reservar(tx, mensagem["idVaga"].(string))
 			case TIMEOUT:
-				return hotel.Liberar(tx, msgHotel.IdVaga)
+				return hotel.Liberar(tx, mensagem["idVaga"].(string))
 			default:
 				return errors.New("ação não definida")
 			}
 		} else {
 			// Não está previsto reverter timeout
-			return sessoes.ExecutarSobBloqueio(msgHotel.IdSessao, redisLock, func() error {
-				err := hotel.ReverterReserva(tx, msgHotel.IdVaga)
+			return sessoes.ExecutarSobBloqueio(mensagem["idSessao"].(string), redisLock, func() error {
+				err := hotel.ReverterReserva(tx, mensagem["idVaga"].(string))
 
 				if err != nil {
 					return err
 				}
 
-				return sessoes.MudarEstado(msgHotel.IdSessao, redisSessoes, sessoes.ATIVA)
+				return sessoes.MudarEstado(mensagem["idSessao"].(string), redisSessoes, sessoes.ATIVA)
 			})
 		}
 	})

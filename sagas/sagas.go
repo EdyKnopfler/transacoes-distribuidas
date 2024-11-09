@@ -1,30 +1,30 @@
 package sagas
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 const errorsExchange = "errors_exchange"
+const errorsRoutingKey = "errors"
 const sagasExchange = "sagas"
 
 const EXECUTE byte = 1
 const DESFAÇA byte = 2
 
-type Mensagem struct {
-	Tipo  byte   `json:"tipo"`
-	Dados string `json:"dados"`
-}
+type Mensagem = map[string]any
 
 func Inicializar(ch *amqp.Channel) error {
 	if err := declararExchange(ch, errorsExchange); err != nil {
 		return err
 	}
 
-	if err := declararFila(ch, "errors", errorsExchange); err != nil {
+	if err := declararFila(ch, errorsRoutingKey, errorsExchange); err != nil {
 		return err
 	}
 
@@ -87,26 +87,26 @@ func IniciarConsumo(
 		return err
 	}
 
-	var mensagem Mensagem
-
-	for {
+	go func() {
 		for entrega := range entregas {
-			err := json.Unmarshal(entrega.Body, &mensagem)
+			mensagem, err := decodeMsg(entrega.Body)
 
 			if err != nil {
 				fmt.Printf("Falha ao ler mensagem '%s' em JSON: %s\n", string(entrega.Body), err)
 			} else {
-				err = funcaoTratamento(mensagem)
+				err = tratarErro(funcaoTratamento, mensagem)
 			}
 
 			if err != nil {
+				fmt.Printf("Erro ao processar mensagem: %s\n", err)
+
 				// multiple, requeue
 				if err = entrega.Nack(false, false); err != nil {
 					fmt.Printf("Falha ao realizar Not Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
 				}
 
 				if filaServicoAnterior != nil {
-					mensagem.Tipo = DESFAÇA
+					mensagem["tipo"] = DESFAÇA
 					Publicar(ch, *filaServicoAnterior, mensagem)
 				}
 			} else {
@@ -115,8 +115,15 @@ func IniciarConsumo(
 					fmt.Printf("Falha ao realizar Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
 				}
 
+				tipo, presente := mensagem["tipo"]
+
+				if !presente {
+					mensagem["tipo"] = EXECUTE
+				}
+
 				var fila *string
-				if mensagem.Tipo == EXECUTE {
+
+				if tipo == EXECUTE {
 					fila = filaProximoServico
 				} else {
 					fila = filaServicoAnterior
@@ -127,23 +134,22 @@ func IniciarConsumo(
 				}
 			}
 		}
-	}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)
+	<-stop
+	fmt.Println("Finalizando consumidor " + nomeConsumidor)
+	return nil
 }
 
-func Publicar(ch *amqp.Channel, fila string, mensagem Mensagem) error {
+func Publicar(ch *amqp.Channel, fila string, mensagem interface{}) error {
 	// Escolhido formato JSON devido à troca contínua de inúmeras mensagens pequenas
 	// https://rsheremeta.medium.com/benchmarking-gob-vs-json-xml-yaml-48b090b097e8W
-	var buffer bytes.Buffer
-	encoder := json.NewEncoder(&buffer)
-	err := encoder.Encode(mensagem)
+	msgBytes, err := json.Marshal(mensagem)
 
 	if err != nil {
-		fmt.Printf(
-			"Falha ao transformar mensagem tipo %d: '%s' em JSON: %s\n",
-			mensagem.Tipo,
-			mensagem.Dados,
-			err,
-		)
+		fmt.Printf("Falha ao transformar mensagem '%s' em JSON:\n%s\n\n", mensagem, err)
 		return err
 	}
 
@@ -154,17 +160,12 @@ func Publicar(ch *amqp.Channel, fila string, mensagem Mensagem) error {
 		false,         // immediate
 		amqp.Publishing{
 			ContentType: "application/json",
-			Body:        buffer.Bytes(),
+			Body:        msgBytes,
 		},
 	)
 
 	if err != nil {
-		fmt.Printf(
-			"Falha ao publicar mensagem tipo %d: '%s' no RabbitMQ: %s\n",
-			mensagem.Tipo,
-			mensagem.Dados,
-			err,
-		)
+		fmt.Printf("Falha ao publicar mensagem '%s':\n%s\n\n", mensagem, err)
 		return err
 	}
 
@@ -198,8 +199,8 @@ func declararFila(ch *amqp.Channel, nomeFila, exchange string) error {
 		false, // exclusive
 		false, // no wait
 		amqp.Table{
-			"x-dead-letter-exchange":    "errors",
-			"x-dead-letter-routing-key": "errors",
+			"x-dead-letter-exchange":    errorsExchange,
+			"x-dead-letter-routing-key": errorsRoutingKey,
 		},
 	)
 
@@ -237,4 +238,32 @@ func configurarQos(ch *amqp.Channel) error {
 	}
 
 	return nil
+}
+
+func decodeMsg(corpo []byte) (mensagem Mensagem, err error) {
+	var msgRaw interface{}
+
+	if err = json.Unmarshal(corpo, &msgRaw); err != nil {
+		return
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("estrutura do JSON inválida: %s", r)
+		}
+	}()
+
+	mensagem = msgRaw.(Mensagem)
+	return
+}
+
+func tratarErro(funcaoTratamento func(Mensagem) error, mensagem Mensagem) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("erro ao tratar mensagem: %s", r)
+		}
+	}()
+
+	err = funcaoTratamento(mensagem)
+	return
 }
