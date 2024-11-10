@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	CONFIRMACAO = 1
-	TIMEOUT     = 2
+	CONFIRMACAO float64 = 1
+	TIMEOUT     float64 = 2
 )
 
 type Mensagem struct {

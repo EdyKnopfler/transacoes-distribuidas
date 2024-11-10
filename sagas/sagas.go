@@ -3,9 +3,6 @@ package sagas
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -14,8 +11,8 @@ const errorsExchange = "errors_exchange"
 const errorsRoutingKey = "errors"
 const sagasExchange = "sagas"
 
-const EXECUTE byte = 1
-const DESFAÇA byte = 2
+const EXECUTE float64 = 1
+const DESFAÇA float64 = 2
 
 type Mensagem = map[string]any
 
@@ -87,58 +84,59 @@ func IniciarConsumo(
 		return err
 	}
 
-	go func() {
-		for entrega := range entregas {
-			mensagem, err := decodeMsg(entrega.Body)
+	for entrega := range entregas {
+		mensagem, err := decodeMsg(entrega.Body)
 
-			if err != nil {
-				fmt.Printf("Falha ao ler mensagem '%s' em JSON: %s\n", string(entrega.Body), err)
-			} else {
-				err = tratarErro(funcaoTratamento, mensagem)
+		if err != nil {
+			fmt.Printf("Falha ao ler mensagem '%s' em JSON: %s\n", string(entrega.Body), err)
+		} else {
+			_, presente := mensagem["tipo"]
+
+			if !presente {
+				mensagem["tipo"] = EXECUTE
 			}
 
-			if err != nil {
-				fmt.Printf("Erro ao processar mensagem: %s\n", err)
+			err = tratarErro(funcaoTratamento, mensagem)
+		}
 
-				// multiple, requeue
-				if err = entrega.Nack(false, false); err != nil {
-					fmt.Printf("Falha ao realizar Not Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
-				}
+		if err != nil {
+			fmt.Printf("Erro ao processar mensagem: %s\n", err)
 
-				if filaServicoAnterior != nil {
-					mensagem["tipo"] = DESFAÇA
-					Publicar(ch, *filaServicoAnterior, mensagem)
-				}
+			// multiple, requeue
+			if err = entrega.Nack(false, false); err != nil {
+				fmt.Printf("Falha ao realizar Not Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
+			}
+
+			if filaServicoAnterior != nil {
+				mensagem["tipo"] = DESFAÇA
+				Publicar(ch, *filaServicoAnterior, mensagem)
+			}
+		} else {
+			// multiple
+			if err = entrega.Ack(false); err != nil {
+				fmt.Printf("Falha ao realizar Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
+			}
+
+			tipo, presente := mensagem["tipo"]
+
+			if !presente {
+				tipo = EXECUTE
+			}
+
+			var fila *string
+
+			if tipo == EXECUTE {
+				fila = filaProximoServico
 			} else {
-				// multiple
-				if err = entrega.Ack(false); err != nil {
-					fmt.Printf("Falha ao realizar Ack na fila '%s' no RabbitMQ: %s\n", filaEsteServico, err)
-				}
+				fila = filaServicoAnterior
+			}
 
-				tipo, presente := mensagem["tipo"]
-
-				if !presente {
-					mensagem["tipo"] = EXECUTE
-				}
-
-				var fila *string
-
-				if tipo == EXECUTE {
-					fila = filaProximoServico
-				} else {
-					fila = filaServicoAnterior
-				}
-
-				if fila != nil {
-					Publicar(ch, *fila, mensagem)
-				}
+			if fila != nil {
+				Publicar(ch, *fila, mensagem)
 			}
 		}
-	}()
+	}
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT, os.Interrupt)
-	<-stop
 	fmt.Println("Finalizando consumidor " + nomeConsumidor)
 	return nil
 }
