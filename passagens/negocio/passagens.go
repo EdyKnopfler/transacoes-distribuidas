@@ -50,6 +50,8 @@ func transicionarEstado(db *gorm.DB, idAssento string, novoEstado byte) error {
 	}
 
 	if transicoesValidas[assento.Estado][novoEstado] {
+		assento.Estado = novoEstado
+
 		if err := db.Save(&assento).Error; err != nil {
 			return err
 		}

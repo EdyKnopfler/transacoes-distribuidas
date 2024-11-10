@@ -23,11 +23,13 @@ type Mensagem struct {
 var gormPostgres *gorm.DB
 
 func main() {
-	gormPostgres, err := conexoes.ConectarPostgreSQL("passagens")
+	db, err := conexoes.ConectarPostgreSQL("passagens")
 
 	if err != nil {
 		panic("Não foi possível conectar-se ao PostgreSQL.")
 	}
+
+	gormPostgres = db
 
 	defer func() {
 		sqlDB, _ := gormPostgres.DB()
