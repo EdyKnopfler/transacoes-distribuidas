@@ -1,6 +1,7 @@
 package hotel
 
 import (
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -13,8 +14,9 @@ const (
 )
 
 type Vaga struct {
-	ID     string `gorm:"primaryKey;size:36"`
-	Estado byte   `gorm:"default:1"`
+	ID        string `gorm:"primaryKey;size:36"`
+	Estado    byte   `gorm:"default:1"`
+	IdUsuario string `gorm:"size:36"`
 }
 
 var transicoesValidas = map[byte]map[byte]bool{
@@ -30,19 +32,19 @@ var transicoesValidas = map[byte]map[byte]bool{
 	},
 }
 
-func Reservar(db *gorm.DB, idVaga string) error {
-	return transicionarEstado(db, idVaga, RESERVADA)
+func PreReserva(db *gorm.DB, idVaga string, idUsuario string) error {
+	return transicionarEstado(db, idVaga, idUsuario, PRE_RESERVA)
 }
 
-func Liberar(db *gorm.DB, idVaga string) error {
-	return transicionarEstado(db, idVaga, LIVRE)
+func Reservar(db *gorm.DB, idVaga string, idUsuario string) error {
+	return transicionarEstado(db, idVaga, idUsuario, RESERVADA)
 }
 
-func ReverterReserva(db *gorm.DB, idVaga string) error {
-	return transicionarEstado(db, idVaga, PRE_RESERVA)
+func Liberar(db *gorm.DB, idVaga string, idUsuario string) error {
+	return transicionarEstado(db, idVaga, idUsuario, LIVRE)
 }
 
-func transicionarEstado(db *gorm.DB, idVaga string, novoEstado byte) error {
+func transicionarEstado(db *gorm.DB, idVaga string, idUsuario string, novoEstado byte) error {
 	var vaga Vaga
 
 	if err := db.First(&vaga, idVaga).Error; err != nil {
@@ -50,6 +52,10 @@ func transicionarEstado(db *gorm.DB, idVaga string, novoEstado byte) error {
 	}
 
 	if transicoesValidas[vaga.Estado][novoEstado] {
+		if vaga.IdUsuario != idUsuario {
+			return errors.New("vaga está com outro usuário")
+		}
+
 		vaga.Estado = novoEstado
 
 		if err := db.Save(&vaga).Error; err != nil {

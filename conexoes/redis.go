@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-redsync/redsync/v4"
 	"github.com/go-redsync/redsync/v4/redis"
-	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
+	goredisRedsync "github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	goredislib "github.com/redis/go-redis/v9"
 )
 
@@ -27,7 +27,7 @@ func ConectarRedis(database int) *RedisConnection {
 		DB:       database,
 	})
 
-	pool := goredis.NewPool(client)
+	pool := goredisRedsync.NewPool(client)
 	sync := redsync.New(pool)
 
 	return &RedisConnection{
@@ -62,5 +62,10 @@ func (conn *RedisConnection) Setar(key string, value string) error {
 
 func (conn *RedisConnection) Obter(key string) (string, error) {
 	val, err := conn.client.Get(context.Background(), key).Result()
+
+	if err == goredislib.Nil {
+		err = nil
+	}
+
 	return val, err
 }

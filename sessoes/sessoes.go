@@ -30,7 +30,7 @@ var transicoesValidas = map[byte]map[byte]bool{
 	CANCELADA: {},
 }
 
-func CriarSessao(redis conexoes.RedisConnection, IdUsuario string) (string, error) {
+func CriarSessao(redis *conexoes.RedisConnection, IdUsuario string) (string, error) {
 	id := uuid.New().String()
 
 	sessao := Sessao{

@@ -94,16 +94,16 @@ func executar(mensagem sagas.Mensagem) error {
 			switch mensagem["acao"] {
 			case CONFIRMACAO:
 				// Tratamento de erro feito no módulo sagas; aqui vamos mais despreocupados :)
-				return hotel.Reservar(tx, mensagem["idVaga"].(string))
+				return hotel.Reservar(tx, mensagem["idVaga"].(string), mensagem["idUsuario"].(string))
 			case TIMEOUT:
-				return hotel.Liberar(tx, mensagem["idVaga"].(string))
+				return hotel.Liberar(tx, mensagem["idVaga"].(string), mensagem["idUsuario"].(string))
 			default:
 				return errors.New("ação não definida")
 			}
 		} else {
 			// Não está previsto reverter timeout
 			return sessoes.ExecutarSobBloqueio(mensagem["idSessao"].(string), redisLock, func() error {
-				err := hotel.ReverterReserva(tx, mensagem["idVaga"].(string))
+				err := hotel.PreReserva(tx, mensagem["idVaga"].(string), mensagem["idUsuario"].(string))
 
 				if err != nil {
 					return err
