@@ -41,7 +41,7 @@ func main() {
 	rabbitMQ, err := conexoes.ConectarRabbitMQ()
 
 	if err != nil {
-		panic("Não foi possível conectar-se ao RabbitMq.")
+		panic("Não foi possível conectar-se ao RabbitMQ.")
 	}
 
 	defer rabbitMQ.Fechar()

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	hotel "com.derso.aprendendo/hotel/negocio"
+	"com.derso.aprendendo/sagas"
 )
 
 type Objeto struct {
@@ -58,6 +59,12 @@ func main() {
 	mapa := arbitrario.(map[string]any)
 	fmt.Println("Itens:", mapa["itens"]) // existente
 	fmt.Println("Valor:", mapa["valor"]) // inexistente
+
+	var mensagem sagas.Mensagem = map[string]any{
+		"tipo": sagas.DESFAÇA,
+	}
+
+	fmt.Println("Mensagem", mensagem)
 
 	defer func() {
 		if r := recover(); r != nil {

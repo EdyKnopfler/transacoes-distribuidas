@@ -60,6 +60,10 @@ func (conn *RedisConnection) Setar(key string, value string) error {
 	return conn.client.Set(context.Background(), key, value, 0).Err()
 }
 
+func (conn *RedisConnection) SetarObjeto(key string, keyValues ...any) error {
+	return conn.client.HSet(context.Background(), key, keyValues...).Err()
+}
+
 func (conn *RedisConnection) Obter(key string) (string, error) {
 	val, err := conn.client.Get(context.Background(), key).Result()
 
@@ -68,4 +72,48 @@ func (conn *RedisConnection) Obter(key string) (string, error) {
 	}
 
 	return val, err
+}
+
+func (conn *RedisConnection) ObterObjeto(key string, ponteiroObj interface{}) error {
+	query := conn.client.HGetAll(context.Background(), key)
+
+	if _, err := query.Result(); err != nil {
+		return err
+	}
+
+	if err := query.Scan(ponteiroObj); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (conn *RedisConnection) Iterar(tamanhoBatch int64, fnExec func(key string) error, fnErro func(key string, err error)) error {
+	var cursor uint64
+
+	for {
+		batchKeys, cursor, err := conn.client.Scan(context.Background(), cursor, "*", tamanhoBatch).Result()
+
+		if err != nil {
+			return err
+		}
+
+		for _, key := range batchKeys {
+			err = fnExec(key)
+
+			if err != nil {
+				fnErro(key, err)
+			}
+		}
+
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return nil
+}
+
+func (conn *RedisConnection) Deletar(key string) error {
+	return conn.client.Del(context.Background(), key).Err()
 }

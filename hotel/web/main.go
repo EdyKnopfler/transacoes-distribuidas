@@ -12,14 +12,20 @@ import (
 	"gorm.io/gorm"
 )
 
+type BaseRequest struct {
+	IdUsuario string `json:"idUsuario"`
+	IdSessao  string `json:"idSessao"`
+	IdVaga    string `json:"idVaga"`
+}
+
 var (
 	gormPostgres *gorm.DB
 	redisSessoes *conexoes.RedisConnection
 	redisLock    *conexoes.RedisConnection
 )
 
-func alterarVaga(c *gin.Context, fnAlteracao func(request web.BaseRequest) error) {
-	var request web.BaseRequest
+func alterarVaga(c *gin.Context, fnAlteracao func(request BaseRequest) error) {
+	var request BaseRequest
 
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "erro", "erro": "Requisição inválida"})
@@ -67,13 +73,13 @@ func main() {
 	})
 
 	router.POST("/marcar-vaga", func(c *gin.Context) {
-		alterarVaga(c, func(request web.BaseRequest) error {
+		alterarVaga(c, func(request BaseRequest) error {
 			return hotel.PreReserva(gormPostgres, request.IdVaga, request.IdUsuario)
 		})
 	})
 
 	router.POST("/desmarcar-vaga", func(c *gin.Context) {
-		alterarVaga(c, func(request web.BaseRequest) error {
+		alterarVaga(c, func(request BaseRequest) error {
 			return hotel.Liberar(gormPostgres, request.IdVaga, request.IdUsuario)
 		})
 	})

@@ -14,13 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type BaseRequest struct {
-	IdUsuario string `json:"idUsuario"`
-	IdSessao  string `json:"idSessao"`
-	IdVaga    string `json:"idVaga"`
-	IdAssento string `json:"idAssento"`
-}
-
 func CreateServer(hostAndPort string) (*http.Server, *gin.Engine) {
 	router := gin.Default()
 
@@ -57,14 +50,14 @@ func RunServer(server *http.Server) {
 }
 
 func CriarSessao(redis *conexoes.RedisConnection, c *gin.Context) {
-	var request BaseRequest
+	var sessao sessoes.Sessao
 
-	if err := c.ShouldBindJSON(&request); err != nil {
+	if err := c.ShouldBindJSON(&sessao); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "erro", "erro": "Requisição inválida"})
 		return
 	}
 
-	idSessao, err := sessoes.CriarSessao(redis, request.IdUsuario)
+	idSessao, err := sessoes.CriarSessao(redis, sessao)
 
 	if err != nil {
 		fmt.Println("Erro ao criar sessão:", err)

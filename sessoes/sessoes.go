@@ -1,8 +1,8 @@
 package sessoes
 
 import (
-	"encoding/json"
 	"fmt"
+	"time"
 
 	"com.derso.aprendendo/conexoes"
 	"github.com/google/uuid"
@@ -12,11 +12,15 @@ const (
 	ATIVA      = 1
 	FINALIZADA = 2
 	CANCELADA  = 3
+	EXPIRA_EM  = 2 * time.Minute // TODO Valor baixo para testes
 )
 
 type Sessao struct {
-	IdUsuario string
-	Estado    byte
+	IdUsuario string `redis:"idUsuario" json:"idUsuario"`
+	IdVaga    string `redis:"idVaga" json:"idVaga"`
+	IdAssento string `redis:"idAssento" json:"idAssento"`
+	Criacao   int64  `redis:"criacao" json:"criacao"`
+	Estado    byte   `redis:"estado" json:"estado"`
 }
 
 var transicoesValidas = map[byte]map[byte]bool{
@@ -30,38 +34,29 @@ var transicoesValidas = map[byte]map[byte]bool{
 	CANCELADA: {},
 }
 
-func CriarSessao(redis *conexoes.RedisConnection, IdUsuario string) (string, error) {
-	id := uuid.New().String()
+func CriarSessao(redis *conexoes.RedisConnection, sessao Sessao) (string, error) {
+	idSessao := uuid.New().String()
+	criacao := time.Now().Unix()
 
-	sessao := Sessao{
-		IdUsuario: IdUsuario,
-		Estado:    ATIVA,
-	}
-
-	sessaoJson, err := json.Marshal(sessao)
-
-	if err != nil {
-		return id, err
-	}
-
-	err = redis.Setar(id, string(sessaoJson))
+	err := redis.SetarObjeto(
+		idSessao,
+		"idUsuario", sessao.IdUsuario,
+		"idVaga", sessao.IdVaga,
+		"idAssento", sessao.IdAssento,
+		"criacao", criacao,
+		"estado", ATIVA,
+	)
 
 	if err != nil {
-		return id, err
+		return "", err
 	}
 
-	return id, nil
+	return idSessao, nil
 }
 
 func MudarEstado(idSessao string, redis *conexoes.RedisConnection, novoEstado byte) error {
-	raw, err := redis.Obter(idSessao)
-
-	if err != nil {
-		return err
-	}
-
 	var sessao Sessao
-	err = json.Unmarshal([]byte(raw), &sessao)
+	err := redis.ObterObjeto(idSessao, &sessao)
 
 	if err != nil {
 		return err
@@ -70,15 +65,13 @@ func MudarEstado(idSessao string, redis *conexoes.RedisConnection, novoEstado by
 	estadoAnterior := sessao.Estado
 
 	if transicoesValidas[estadoAnterior][novoEstado] {
-		sessao.Estado = novoEstado
-		sessaoJson, err := json.Marshal(sessao)
-
-		if err != nil {
-			return err
-		}
-
-		err = redis.Setar(idSessao, string(sessaoJson))
-		return err
+		return redis.SetarObjeto(
+			idSessao,
+			"idUsuario", sessao.IdUsuario,
+			"idVaga", sessao.IdVaga,
+			"idAssento", sessao.IdAssento,
+			"estado", novoEstado,
+		)
 	} else {
 		return fmt.Errorf("transição de sessão inválida: %d => %d", estadoAnterior, novoEstado)
 	}
@@ -94,4 +87,8 @@ func ExecutarSobBloqueio(idSessao string, redis *conexoes.RedisConnection, fn fu
 	defer redis.Desbloquear(mutex)
 
 	return fn()
+}
+
+func (sessao *Sessao) Expirada() bool {
+	return time.Now().After(time.Unix(sessao.Criacao, 0).Add(EXPIRA_EM))
 }
